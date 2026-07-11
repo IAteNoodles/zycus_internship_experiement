@@ -13,7 +13,7 @@ PROVIDERS: list[dict[str, Any]] = [
         "name": "groq",
         "env_key": "GROQ_API_KEY",
         "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
     },
     {
         "name": "openrouter",
@@ -23,7 +23,7 @@ PROVIDERS: list[dict[str, Any]] = [
     },
 ]
 
-_REQUEST_TIMEOUT = 30
+_REQUEST_TIMEOUT = 15
 
 
 def ask_llm(

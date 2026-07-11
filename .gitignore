@@ -11,3 +11,5 @@ zycus.egg-info/
 dist/
 build/
 .python-version
+frontend/dist/
+frontend/node_modules/

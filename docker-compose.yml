@@ -3,14 +3,16 @@ services:
     build: .
     ports:
       - "8000:8000"
+      - "8501:8501"
     volumes:
-      - zycus_data:/app/output
-      - zycus_db:/app/zycus.db
+      - zycus_output:/app/output
+      - zycus_data:/app/data
     environment:
+      - ZYCLUS_DB=/app/data/zycus.db
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
 
 volumes:
+  zycus_output:
   zycus_data:
-  zycus_db:

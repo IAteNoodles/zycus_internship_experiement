@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from data import sample_projects
 from projects import Project, SentimentScore
-from rag import compute_rag, RagResult
+from rag import compute_rag, RagResult, RAG
 from sentiment import analyze_sentiment
 from reports import weekly_narrative, monthly_content
 
@@ -126,7 +126,7 @@ def synthesize_monthly(results: list[tuple[Project, RagResult]], as_of: date, pa
     tf = _tb(sl, Inches(0), Inches(2.0), W, Inches(1.5))
     _add_para(tf, "Monthly Project Health Report", Pt(40), WHITE, True, PP_ALIGN.CENTER, Pt(0))
     tf2 = _tb(sl, Inches(0), Inches(3.5), W, Inches(1))
-    _add_para(tf2, as_of.strftime("%B %-d, %Y"), Pt(20), RGBColor(0x94, 0xA3, 0xB8), False, PP_ALIGN.CENTER)
+    _add_para(tf2, as_of.strftime(f"%B {as_of.day}, %Y"), Pt(20), RGBColor(0x94, 0xA3, 0xB8), False, PP_ALIGN.CENTER)
 
     # ── Executive Summary ──
     sl = prs.slides.add_slide(prs.slide_layouts[6])

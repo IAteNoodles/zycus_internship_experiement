@@ -84,7 +84,7 @@ def score_schedule(project: Project, snap: ProgressSnapshot, as_of: date) -> Sig
 
 
 def score_budget(project: Project, snap: ProgressSnapshot) -> SignalResult:
-    if snap.budget_spent is None or snap.percent_complete is None or project.budget <= 0:
+    if snap.budget_spent is None or snap.percent_complete is None or project.budget is None or project.budget <= 0:
         return SignalResult("budget", None, "Budget spent or % complete not reported.")
 
     burn_pct = 100 * snap.budget_spent / project.budget

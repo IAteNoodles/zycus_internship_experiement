@@ -6,19 +6,24 @@ from contextlib import contextmanager
 from datetime import date
 from typing import Optional, Any
 
-DB_PATH = os.getenv("ZYCLUS_DB", os.path.join(os.path.dirname(__file__), "zycus.db"))
+def _db_path():
+    return os.getenv("ZYCLUS_DB", os.path.join(os.path.dirname(__file__), "zycus.db"))
 
 
 @contextmanager
 def conn():
     db = None
     try:
-        db = sqlite3.connect(DB_PATH, timeout=5)
+        db = sqlite3.connect(_db_path(), timeout=5)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
         yield db
         db.commit()
+    except sqlite3.OperationalError:
+        if db:
+            db.rollback()
+        raise
     except sqlite3.Error as e:
         if db:
             db.rollback()

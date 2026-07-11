@@ -63,7 +63,7 @@ def test_green_no_blockers_good_sentiment():
 
 def test_amber_one_overdue():
     p = _project(milestones=[
-        Milestone("M1", date(2026, 5, 1), MilestoneStatus.IN_PROGRESS),
+        Milestone("M1", TODAY - timedelta(days=35), MilestoneStatus.IN_PROGRESS),
     ])
     p.add_snapshot(_snapshot(percent_complete=45.0, blockers=[], stakeholder_sentiment=[]))
     r = compute_rag(p, p.latest, TODAY)
