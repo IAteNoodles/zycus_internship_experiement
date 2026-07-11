@@ -2,6 +2,8 @@
 
 Automated project health monitoring with RAG (Red/Amber/Green) scoring, LLM-generated weekly narratives, monthly PPTX reports, a Streamlit UI, and a FastAPI API.
 
+**AI usage**: Narrative generation (weekly/monthly reports) and sentiment scoring use LLMs (Groq/OpenRouter). The RAG scoring model, data models, and business logic are **hand-crafted** — no LLM inference in the critical path — to ensure deterministic, auditable assessments and a stable backbone for coordination.
+
 ## Quick Start
 
 ```bash
