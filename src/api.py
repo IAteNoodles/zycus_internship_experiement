@@ -12,9 +12,10 @@ from starlette.responses import JSONResponse
 
 import database
 from database import project_to_domain
-from rag import compute_rag, RagResult, RAG
-from sentiment import analyze_sentiment
-from schedule import start_scheduler, stop_scheduler, _run_weekly, _run_monthly
+from models.rag import compute_rag, RagResult, RAG
+from models.sentiment import analyze_sentiment
+from schedule import start_scheduler, stop_scheduler
+from seed import seed
 
 load_dotenv()
 
@@ -44,6 +45,7 @@ os.makedirs(os.path.join(os.path.dirname(__file__), "output"), exist_ok=True)
 @app.on_event("startup")
 def startup():
     database.init()
+    seed()
     start_scheduler()
 
 
@@ -52,7 +54,6 @@ def shutdown():
     stop_scheduler()
 
 
-# ── Helpers ────────────────────────────────────────────────
 
 def _enrich_sentiment(proj_dict: dict, llm: bool = False):
     proj = project_to_domain(proj_dict)
@@ -102,7 +103,6 @@ def _project_detail(proj: dict):
     }
 
 
-# ── Pydantic models ────────────────────────────────────────
 
 class ProjectIn(BaseModel):
     name: str
@@ -133,7 +133,6 @@ class SentimentIn(BaseModel):
     comment: str
 
 
-# ── Projects ───────────────────────────────────────────────
 
 @app.get("/api/projects")
 def api_list_projects():
@@ -190,7 +189,6 @@ def api_delete_project(pid: int):
     return {"ok": True}
 
 
-# ── Milestones ─────────────────────────────────────────────
 
 @app.post("/api/projects/{pid}/milestones")
 def api_add_milestone(pid: int, body: MilestoneIn):
@@ -207,7 +205,6 @@ def api_delete_milestone(mid: int):
     return {"ok": True}
 
 
-# ── Snapshots ──────────────────────────────────────────────
 
 @app.post("/api/projects/{pid}/snapshots")
 def api_add_snapshot(pid: int, body: SnapshotIn):
@@ -225,7 +222,6 @@ def api_delete_snapshot(sid: int):
     return {"ok": True}
 
 
-# ── Blockers ───────────────────────────────────────────────
 
 @app.post("/api/snapshots/{sid}/blockers")
 def api_add_blocker(sid: int, body: BlockerIn):
@@ -256,7 +252,6 @@ def api_delete_blocker(bid: int):
     return {"ok": True}
 
 
-# ── Sentiment ──────────────────────────────────────────────
 
 @app.post("/api/snapshots/{sid}/sentiment")
 def api_add_sentiment(sid: int, body: SentimentIn):
@@ -267,7 +262,6 @@ def api_add_sentiment(sid: int, body: SentimentIn):
     return {"ok": True}
 
 
-# ── Reports ────────────────────────────────────────────────
 
 @app.get("/api/reports")
 def api_list_reports(type: Optional[str] = None):
@@ -307,11 +301,7 @@ def api_download_report(rid: int):
     return FileResponse(r["file_path"], filename=os.path.basename(r["file_path"]))
 
 
-# ── Health ─────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
-
-
-

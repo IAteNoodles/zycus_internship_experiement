@@ -5,8 +5,8 @@ from datetime import date, datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import list_projects, get_project, save_report, project_to_domain
-from rag import compute_rag
-from sentiment import analyze_sentiment
+from models.rag import compute_rag
+from models.sentiment import analyze_sentiment
 from reports import weekly_narrative, monthly_content
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
@@ -14,9 +14,12 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
 def _run_weekly():
     try:
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
         today = date.today()
         rows = list_projects()
+        if not rows:
+            print(f"[scheduler] No projects — skipping weekly report.")
+            return
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         summaries = []
         for row in rows:
             try:
@@ -35,7 +38,7 @@ def _run_weekly():
             except Exception as e:
                 summaries.append(f"[SKIP] {row.get('name', '?')}: {e}")
 
-        summary_text = "\n\n".join(summaries)
+        summary_text = "\n\n".join(summaries) if summaries else "No project data available."
         fname = f"weekly_{today.isoformat()}.txt"
         fpath = os.path.join(OUTPUT_DIR, fname)
         with open(fpath, "w") as f:
@@ -49,9 +52,12 @@ def _run_weekly():
 
 def _run_monthly():
     try:
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
         today = date.today()
         rows = list_projects()
+        if not rows:
+            print(f"[scheduler] No projects — skipping monthly report.")
+            return
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         results = []
         for row in rows:
             try:
@@ -80,7 +86,7 @@ def _run_monthly():
                 f.write(f"[{r.status}] {p.name}\n")
                 f.write(weekly_narrative(p, r) + "\n\n")
             f.write("--- Executive Summary ---\n")
-            f.write(content.get("executive_summary", ""))
+            f.write(summary_text)
             f.write("\n\nTrends:\n")
             for t in content.get("trends", []):
                 f.write(f"  - {t}\n")
@@ -88,13 +94,16 @@ def _run_monthly():
             for rec in content.get("recommendations", []):
                 f.write(f"  - {rec}\n")
 
-        try:
-            from main import synthesize_monthly
-            fpath_pptx = synthesize_monthly(results, today, os.path.join(OUTPUT_DIR, f"monthly_{today.isoformat()}.pptx"))
-            save_report("monthly", today.isoformat(), fpath_pptx, summary_text[:500])
-            print(f"[scheduler] Monthly PPTX saved: {fpath_pptx}")
-        except Exception as e:
-            print(f"[scheduler] PPTX generation failed: {e}")
+        if results:
+            try:
+                from main import synthesize_monthly
+                fpath_pptx = synthesize_monthly(results, today, os.path.join(OUTPUT_DIR, f"monthly_{today.isoformat()}.pptx"))
+                save_report("monthly", today.isoformat(), fpath_pptx, summary_text[:500])
+                print(f"[scheduler] Monthly PPTX saved: {fpath_pptx}")
+            except Exception as e:
+                print(f"[scheduler] PPTX generation failed: {e}")
+                save_report("monthly", today.isoformat(), fpath_txt, summary_text[:500])
+        else:
             save_report("monthly", today.isoformat(), fpath_txt, summary_text[:500])
 
         print(f"[scheduler] Monthly report saved: {fpath_txt}")

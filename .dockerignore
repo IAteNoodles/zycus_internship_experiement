@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.venv
+venv
+.env
+.opencode
+.agents
+.claude
+tests
+output
+skills-lock.json

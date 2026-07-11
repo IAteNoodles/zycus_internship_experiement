@@ -1,10 +1,36 @@
 from __future__ import annotations
 import json
+import re
 import sqlite3
 import os
 from contextlib import contextmanager
 from datetime import date
 from typing import Optional, Any
+
+
+def parse_date(value: str | date) -> date:
+    if isinstance(value, date):
+        return value
+    if not value or not isinstance(value, str):
+        raise ValueError(f"Cannot parse date: {value!r}")
+    s = value.strip()
+    # YYYY-MM-DD (ISO)
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    # YYYY/MM/DD
+    m = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", s)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    # MM/DD/YYYY or M/D/YYYY
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", s)
+    if m:
+        return date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+    # DD.MM.YYYY
+    m = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", s)
+    if m:
+        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    raise ValueError(f"Unrecognized date format: {value!r}")
 
 def _db_path():
     return os.getenv("ZYCLUS_DB", os.path.join(os.path.dirname(__file__), "zycus.db"))
@@ -96,8 +122,6 @@ def init():
         """)
 
 
-# ── Projects ───────────────────────────────────────────────
-
 def list_projects() -> list[dict]:
     with conn() as db:
         rows = db.execute("SELECT * FROM projects ORDER BY name").fetchall()
@@ -144,8 +168,6 @@ def delete_project(pid: int) -> None:
         db.execute("DELETE FROM projects WHERE id=?", (pid,))
 
 
-# ── Milestones ─────────────────────────────────────────────
-
 def upsert_milestone(data: dict) -> int:
     with conn() as db:
         mid = data.get("id")
@@ -166,8 +188,6 @@ def delete_milestone(mid: int) -> None:
     with conn() as db:
         db.execute("DELETE FROM milestones WHERE id=?", (mid,))
 
-
-# ── Snapshots ──────────────────────────────────────────────
 
 def upsert_snapshot(data: dict) -> int:
     with conn() as db:
@@ -191,8 +211,6 @@ def delete_snapshot(sid: int) -> None:
         db.execute("DELETE FROM snapshots WHERE id=?", (sid,))
 
 
-# ── Blockers ───────────────────────────────────────────────
-
 def upsert_blocker(data: dict) -> int:
     with conn() as db:
         bid = data.get("id")
@@ -215,8 +233,6 @@ def delete_blocker(bid: int) -> None:
         db.execute("DELETE FROM blockers WHERE id=?", (bid,))
 
 
-# ── Sentiment ──────────────────────────────────────────────
-
 def upsert_sentiment(data: dict) -> int:
     with conn() as db:
         eid = data.get("id")
@@ -237,8 +253,6 @@ def delete_sentiment(eid: int) -> None:
     with conn() as db:
         db.execute("DELETE FROM sentiment_entries WHERE id=?", (eid,))
 
-
-# ── Internal helpers for app ───────────────────────────────
 
 def _get_milestone(mid: int) -> Optional[dict]:
     with conn() as db:
@@ -264,8 +278,6 @@ def get_report(rid: int) -> Optional[dict]:
         return dict(r) if r else None
 
 
-# ── Reports ────────────────────────────────────────────────
-
 def list_reports(type_filter: Optional[str] = None) -> list[dict]:
     with conn() as db:
         if type_filter:
@@ -287,18 +299,15 @@ def delete_report(rid: int) -> None:
         db.execute("DELETE FROM reports WHERE id=?", (rid,))
 
 
-# ── Build domain objects from DB ───────────────────────────
-
 def project_to_domain(proj: dict):
-    from projects import Project, Milestone, MilestoneStatus, ProgressSnapshot, Blocker, BlockerSeverity, SentimentEntry, SentimentScore, ProjectStatus
-    from datetime import date as dt_date
+    from models.projects import Project, Milestone, MilestoneStatus, ProgressSnapshot, Blocker, BlockerSeverity, SentimentEntry, SentimentScore, ProjectStatus
 
     p = Project(
         name=proj["name"],
         stakeholders=proj.get("stakeholders", []),
         budget=proj["budget"],
-        start_date=dt_date.fromisoformat(proj["start_date"]),
-        end_date=dt_date.fromisoformat(proj["end_date"]),
+        start_date=parse_date(proj["start_date"]),
+        end_date=parse_date(proj["end_date"]),
     )
     for m in proj.get("milestones", []):
         status = m["status"]
@@ -308,9 +317,9 @@ def project_to_domain(proj: dict):
             ms = MilestoneStatus.NOT_STARTED
         p.milestones.append(Milestone(
             name=m["name"],
-            due_date=dt_date.fromisoformat(m["due_date"]),
+            due_date=parse_date(m["due_date"]),
             status=ms,
-            actual_completion_date=dt_date.fromisoformat(m["actual_completion_date"]) if m.get("actual_completion_date") else None,
+            actual_completion_date=parse_date(m["actual_completion_date"]) if m.get("actual_completion_date") else None,
         ))
     for s in proj.get("snapshots", []):
         status = s.get("status", "in_progress")
@@ -319,7 +328,7 @@ def project_to_domain(proj: dict):
         except ValueError:
             ps = ProjectStatus.IN_PROGRESS
         snap = ProgressSnapshot(
-            snapshot_date=dt_date.fromisoformat(s["snapshot_date"]),
+            snapshot_date=parse_date(s["snapshot_date"]),
             status=ps,
             budget_spent=s.get("budget_spent"),
             percent_complete=s.get("percent_complete"),
@@ -333,10 +342,10 @@ def project_to_domain(proj: dict):
                 bs = BlockerSeverity.MEDIUM
             snap.blockers.append(Blocker(
                 description=b["description"],
-                date_raised=dt_date.fromisoformat(b["date_raised"]),
+                date_raised=parse_date(b["date_raised"]),
                 severity=bs,
                 resolved=bool(b["resolved"]),
-                date_resolved=dt_date.fromisoformat(b["date_resolved"]) if b.get("date_resolved") else None,
+                date_resolved=parse_date(b["date_resolved"]) if b.get("date_resolved") else None,
             ))
         for e in s.get("sentiment", []):
             score = e.get("score", "unknown")
@@ -346,7 +355,7 @@ def project_to_domain(proj: dict):
                 ss = SentimentScore.UNKNOWN
             snap.stakeholder_sentiment.append(SentimentEntry(
                 source=e["source"],
-                date_recorded=dt_date.fromisoformat(e["date_recorded"]),
+                date_recorded=parse_date(e["date_recorded"]),
                 comment=e["comment"],
                 score=ss,
             ))

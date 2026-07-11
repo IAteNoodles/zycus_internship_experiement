@@ -2,8 +2,12 @@
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.package-dir]
+"" = "src"
+
 [tool.setuptools.packages.find]
-exclude = ["output", "templates", "tests"]
+where = ["src"]
+exclude = ["output", "tests"]
 
 [project]
 name = "zycus"

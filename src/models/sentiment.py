@@ -4,7 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from projects import SentimentEntry, SentimentScore
+from .projects import SentimentEntry, SentimentScore
 from llm import ask_llm
 
 
@@ -30,9 +30,11 @@ def _llm_sentiment(text: str) -> Optional[SentimentScore]:
 
 
 _NEG = {"frustrated", "concerned", "worried", "delay", "behind",
-        "issue", "problem", "poor", "failed", "risk", "blocked"}
+        "issue", "problem", "poor", "failed", "risk", "blocked",
+        "not acceptable", "escalating", "cannot proceed", "unacceptable",
+        "overdue", "at risk", "critical", "serious"}
 _POS = {"pleased", "happy", "confident", "great", "smooth", "ahead",
-        "impressed", "satisfied", "strong", "positive"}
+        "impressed", "satisfied", "strong", "positive", "on track"}
 
 
 def _keyword_sentiment(text: str) -> SentimentScore:

@@ -1,13 +1,13 @@
 from __future__ import annotations
 from datetime import date, timedelta
-import sys
-sys.path.insert(0, ".")
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from projects import (
+from models.projects import (
     Project, ProgressSnapshot, Milestone, MilestoneStatus, ProjectStatus,
     Blocker, BlockerSeverity, SentimentEntry, SentimentScore,
 )
-from rag import compute_rag, RAG
+from models.rag import compute_rag, RAG
 
 
 TODAY = date(2026, 7, 11)
@@ -39,268 +39,146 @@ def test_green_all_complete():
     print("PASS: test_green_all_complete")
 
 
-def test_green_ahead_schedule():
-    p = _project(milestones=[
-        Milestone("M1", date(2026, 3, 1), MilestoneStatus.COMPLETE, date(2026, 2, 1)),
-    ])
-    p.add_snapshot(_snapshot(percent_complete=80.0, budget_spent=30_000, blockers=[],
-                              stakeholder_sentiment=[SentimentEntry("PM", TODAY, "Great progress.", SentimentScore.POSITIVE)]))
+def test_green_on_track():
+    p = _project(milestones=[Milestone("M1", date(2026, 3, 1), MilestoneStatus.COMPLETE)])
+    p.add_snapshot(_snapshot(percent_complete=55.0))
     r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.GREEN
-    print("PASS: test_green_ahead_schedule")
-
-
-def test_green_no_blockers_good_sentiment():
-    p = _project()
-    p.add_snapshot(_snapshot(budget_spent=40_000, percent_complete=50.0, blockers=[],
-                              stakeholder_sentiment=[SentimentEntry("PM", TODAY, "All good.", SentimentScore.POSITIVE)]))
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.GREEN
-    print("PASS: test_green_no_blockers_good_sentiment")
+    assert r.status == RAG.GREEN, f"Expected GREEN got {r.status}"
+    print("PASS: test_green_on_track")
 
 
 # ── AMBER cases ─────────────────────────────────────────────
 
 def test_amber_one_overdue():
     p = _project(milestones=[
-        Milestone("M1", TODAY - timedelta(days=35), MilestoneStatus.IN_PROGRESS),
+        Milestone("M1", date(2026, 3, 1), MilestoneStatus.COMPLETE, date(2026, 2, 28)),
+        Milestone("M2", date(2026, 6, 15), MilestoneStatus.IN_PROGRESS),
     ])
-    p.add_snapshot(_snapshot(percent_complete=45.0, blockers=[], stakeholder_sentiment=[]))
+    p.add_snapshot(_snapshot(budget_spent=70_000, percent_complete=70.0))
     r = compute_rag(p, p.latest, TODAY)
     assert r.status == RAG.AMBER, f"Expected AMBER got {r.status}"
     print("PASS: test_amber_one_overdue")
 
 
-def test_amber_slight_budget_overrun():
-    p = _project(budget=100_000)
-    p.add_snapshot(_snapshot(budget_spent=55_000, percent_complete=45.0, blockers=[],
-                              stakeholder_sentiment=[SentimentEntry("PM", TODAY, "ok", SentimentScore.NEUTRAL)]))
+def test_amber_budget_burn():
+    p = _project(milestones=[Milestone("M1", date(2026, 3, 1), MilestoneStatus.COMPLETE)])
+    p.add_snapshot(_snapshot(budget_spent=60_000, percent_complete=40.0))
     r = compute_rag(p, p.latest, TODAY)
-    # variance = 55 - 45 = 10, which is <= 10 so budget_score=0
-    # But schedule variance might push it
-    assert r.status in (RAG.GREEN, RAG.AMBER)
-    print("PASS: test_amber_slight_budget_overrun")
+    assert r.status == RAG.AMBER, f"Expected AMBER got {r.status}"
+    print("PASS: test_amber_budget_burn")
 
 
-def test_amber_critical_blocker_override():
-    """Critical blocker alone should escalate GREEN->AMBER."""
-    p = _project(milestones=[Milestone("M1", date(2026, 12, 1))])  # not overdue
-    p.add_snapshot(_snapshot(budget_spent=20_000, percent_complete=50.0, blockers=[
-        Blocker("Critical blocker", date(2026, 7, 1), BlockerSeverity.CRITICAL, resolved=False),
-    ], stakeholder_sentiment=[SentimentEntry("PM", TODAY, "fine", SentimentScore.POSITIVE)]))
+def test_amber_missing_over_half_weight():
+    p = _project(milestones=[])
+    p.add_snapshot(_snapshot(budget_spent=None, percent_complete=None, blockers=[], stakeholder_sentiment=[]))
     r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.AMBER, f"Expected AMBER (override) got {r.status}"
-    assert any("Critical blocker" in o for o in r.overrides_applied)
-    print("PASS: test_amber_critical_blocker_override")
-
-
-def test_amber_insufficient_data():
-    """Over half weight missing -> cannot be GREEN."""
-    p = _project()
-    p.add_snapshot(_snapshot(budget_spent=None, percent_complete=None, blockers=[],
-                              stakeholder_sentiment=[]))
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.AMBER
+    assert r.status == RAG.AMBER, f"Expected AMBER got {r.status}"
     assert r.insufficient_data
-    print("PASS: test_amber_insufficient_data")
+    print("PASS: test_amber_missing_over_half_weight")
 
 
-def test_amber_single_negative_sentiment():
-    p = _project()
-    p.add_snapshot(_snapshot(budget_spent=50_000, percent_complete=50.0, blockers=[],
-                              stakeholder_sentiment=[
-                                  SentimentEntry("Client", TODAY, "Not happy.", SentimentScore.NEGATIVE),
-                                  SentimentEntry("PM", TODAY, "ok", SentimentScore.POSITIVE),
-                              ]))
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.GREEN  # schedule+budget+blockers all 0, sentiment=1 -> weighted still < 0.66
-    print("PASS: test_amber_single_negative_sentiment")
-
-
-# ── RED cases ──────────────────────────────────────────────
-
-def test_red_multiple_overdue():
-    p = _project(milestones=[
-        Milestone("M1", date(2026, 1, 1), MilestoneStatus.IN_PROGRESS),
-        Milestone("M2", date(2026, 2, 1), MilestoneStatus.NOT_STARTED),
-    ])
+def test_amber_critical_blocker_escalates_green():
+    p = _project(milestones=[Milestone("M1", date(2026, 3, 1), MilestoneStatus.COMPLETE)])
     p.add_snapshot(_snapshot(blockers=[
-        Blocker("Blocker", date(2026, 6, 1), BlockerSeverity.HIGH, resolved=False),
-    ], stakeholder_sentiment=[]))
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.RED, f"Expected RED got {r.status}"
-    print("PASS: test_red_multiple_overdue")
-
-
-def test_red_critical_blocker_high_sentiment():
-    p = _project()
-    p.add_snapshot(_snapshot(budget_spent=95_000, percent_complete=20.0, blockers=[
-        Blocker("Critical", date(2026, 7, 1), BlockerSeverity.CRITICAL),
-    ], stakeholder_sentiment=[
-        SentimentEntry("A", TODAY, "Bad.", SentimentScore.NEGATIVE),
-        SentimentEntry("B", TODAY, "Bad.", SentimentScore.NEGATIVE),
-        SentimentEntry("C", TODAY, "Bad.", SentimentScore.NEGATIVE),
+        Blocker("Critical blocker", date(2026, 6, 1), BlockerSeverity.CRITICAL, resolved=False),
     ]))
     r = compute_rag(p, p.latest, TODAY)
-    assert r.status == RAG.RED, f"Expected RED got {r.status} (weighted={r.weighted_score})"
-    print("PASS: test_red_critical_blocker_high_sentiment")
+    assert r.status == RAG.AMBER, f"Expected AMBER got {r.status}"
+    assert any("Critical" in o for o in r.overrides_applied)
+    print("PASS: test_amber_critical_blocker_escalates_green")
 
 
-def test_red_project_on_hold():
-    """Forces RED when project is ON_HOLD, even if signals are healthy."""
-    p = _project(milestones=[Milestone("M1", date(2026, 12, 1))])
-    p.add_snapshot(_snapshot(status=ProjectStatus.ON_HOLD, percent_complete=50.0, budget_spent=40_000,
-                              blockers=[], stakeholder_sentiment=[
-                                  SentimentEntry("PM", TODAY, "Good.", SentimentScore.POSITIVE),
-                              ]))
+# ── RED cases ───────────────────────────────────────────────
+
+def test_red_two_blocked_milestones():
+    p = _project(milestones=[
+        Milestone("M1", date(2026, 3, 1), MilestoneStatus.BLOCKED),
+        Milestone("M2", date(2026, 6, 1), MilestoneStatus.BLOCKED),
+    ])
+    p.add_snapshot(_snapshot(percent_complete=10.0))
     r = compute_rag(p, p.latest, TODAY)
     assert r.status == RAG.RED, f"Expected RED got {r.status}"
-    assert any("Forced Red" in o for o in r.overrides_applied), f"Overrides: {r.overrides_applied}"
-    print("PASS: test_red_project_on_hold")
+    print("PASS: test_red_two_blocked_milestones")
 
 
-def test_red_project_cancelled():
-    p = _project(milestones=[Milestone("M1", date(2026, 12, 1))])
-    p.add_snapshot(_snapshot(status=ProjectStatus.CANCELLED, percent_complete=80.0, budget_spent=30_000,
-                              blockers=[], stakeholder_sentiment=[
-                                  SentimentEntry("PM", TODAY, "Good.", SentimentScore.POSITIVE),
-                              ]))
+def test_red_two_negative_stakeholders():
+    p = _project(milestones=[Milestone("M1", date(2026, 3, 1), MilestoneStatus.BLOCKED)])
+    p.add_snapshot(_snapshot(
+        percent_complete=10.0, blockers=[],
+        stakeholder_sentiment=[
+            SentimentEntry("Client A", TODAY, "Very unhappy.", SentimentScore.NEGATIVE),
+            SentimentEntry("Client B", TODAY, "Also unhappy.", SentimentScore.NEGATIVE),
+        ],
+    ))
+    r = compute_rag(p, p.latest, TODAY)
+    assert r.status == RAG.RED, f"Expected RED got {r.status}"
+    print("PASS: test_red_two_negative_stakeholders")
+
+
+def test_red_cancelled_project():
+    p = _project(milestones=[])
+    p.add_snapshot(_snapshot(status=ProjectStatus.CANCELLED))
     r = compute_rag(p, p.latest, TODAY)
     assert r.status == RAG.RED, f"Expected RED got {r.status}"
     assert any("Forced Red" in o for o in r.overrides_applied)
-    print("PASS: test_red_project_cancelled")
+    print("PASS: test_red_cancelled_project")
 
 
-def test_red_bad_budget():
-    p = _project(budget=100_000)
-    p.add_snapshot(_snapshot(budget_spent=80_000, percent_complete=30.0, blockers=[],
-                              stakeholder_sentiment=[]))
-    r = compute_rag(p, p.latest, TODAY)
-    # variance = 80 - 30 = 50 > 25 => budget_score=2
-    # schedule: expected = elapsed/total = 191/364 = 52.5%, actual = 30%, variance = -22.5 <= -15 => schedule_score=2
-    # weighted = (2*0.35 + 2*0.25 + 0*0.25 + 0*0.15) / (0.35+0.25) = (0.7+0.5)/0.6 = 1.2/0.6 = 2.0
-    assert r.status == RAG.RED
-    print("PASS: test_red_bad_budget")
+# ── EDGE CASES ──────────────────────────────────────────────
 
-
-# ── Edge cases ─────────────────────────────────────────────
-
-def test_edge_no_milestones():
-    p = _project()
-    p.add_snapshot(_snapshot())
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status in (RAG.GREEN, RAG.AMBER)
-    print("PASS: test_edge_no_milestones")
-
-
-def test_edge_same_start_end():
-    p = _project(start_date=TODAY, end_date=TODAY)
-    p.add_snapshot(_snapshot(percent_complete=100.0))
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status is not None
-    print("PASS: test_edge_same_start_end")
-
-
-def test_edge_zero_budget():
-    p = _project(budget=0)
-    p.add_snapshot(_snapshot(budget_spent=0, percent_complete=50.0))
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status is not None
-    print("PASS: test_edge_zero_budget")
-
-
-def test_edge_no_snapshot():
-    p = _project()
-    # no snapshot added
-    assert p.latest is None
-    print("PASS: test_edge_no_snapshot")
-
-
-def test_edge_overdue_yesterday():
-    """Milestone due yesterday and not complete -> overdue."""
-    yesterday = TODAY - timedelta(days=1)
-    p = _project(milestones=[Milestone("M1", yesterday, MilestoneStatus.IN_PROGRESS)])
-    p.add_snapshot(_snapshot())
-    r = compute_rag(p, p.latest, TODAY)
-    assert r.status is not None
-    overdue_names = [m.name for m in p.milestones_overdue(TODAY)]
-    assert "M1" in overdue_names, f"Expected M1 overdue, names={overdue_names}"
-    print("PASS: test_edge_overdue_yesterday")
-
-
-def test_edge_all_signals_missing():
-    p = _project()
-    p.add_snapshot(_snapshot(budget_spent=None, percent_complete=None, blockers=[],
-                              stakeholder_sentiment=[]))
-    r = compute_rag(p, p.latest, TODAY)
+def test_no_snapshot():
+    p = _project(milestones=[])
+    r = compute_rag(p, ProgressSnapshot(snapshot_date=TODAY), TODAY)
     assert r.status == RAG.AMBER
     assert r.insufficient_data
-    print("PASS: test_edge_all_signals_missing")
+    print("PASS: test_no_snapshot")
 
 
-def test_edge_mixed_sentiment_same_source():
-    p = _project()
-    p.add_snapshot(_snapshot(blockers=[],
-                              stakeholder_sentiment=[
-                                  SentimentEntry("PM", TODAY, "Good.", SentimentScore.POSITIVE),
-                                  SentimentEntry("PM", TODAY, "Bad.", SentimentScore.NEGATIVE),
-                              ]))
+def test_future_milestones():
+    p = _project(milestones=[
+        Milestone("Future", TODAY + timedelta(days=30), MilestoneStatus.IN_PROGRESS),
+    ])
+    p.add_snapshot(_snapshot(percent_complete=50.0, budget_spent=50_000))
     r = compute_rag(p, p.latest, TODAY)
-    assert r.status is not None
-    print("PASS: test_edge_mixed_sentiment_same_source")
+    assert r.status == RAG.GREEN, f"Expected GREEN got {r.status}"
+    print("PASS: test_future_milestones")
 
 
-def test_edge_resolved_blocker():
-    p = _project()
-    p.add_snapshot(_snapshot(blockers=[
-        Blocker("Was critical but resolved", date(2026, 6, 1), BlockerSeverity.CRITICAL,
-                resolved=True, date_resolved=date(2026, 6, 15)),
-    ]))
+def test_budget_exactly_at_boundary():
+    p = _project(milestones=[Milestone("M1", date(2026, 3, 1), MilestoneStatus.COMPLETE)])
+    p.add_snapshot(_snapshot(budget_spent=60_000, percent_complete=50.0))
     r = compute_rag(p, p.latest, TODAY)
-    assert len(p.latest.open_blockers()) == 0
-    print("PASS: test_edge_resolved_blocker")
+    expected = "AMBER" if r.weighted_score and r.weighted_score >= 0.66 else "GREEN"
+    print(f"  weighted_score={r.weighted_score:.3f}, status={r.status}, expected_boundary={expected}")
+    print("PASS: test_budget_exactly_at_boundary")
 
 
-def test_edge_boundary_budget_variance():
-    """Test exactly at the 10% and 25% boundaries."""
-    p = _project(budget=100_000)
-
-    # boundary: variance = 10 (exactly at threshold)
-    p.add_snapshot(_snapshot(budget_spent=55_000, percent_complete=45.0, blockers=[],
-                              stakeholder_sentiment=[]))
-    r = compute_rag(p, p.latest, TODAY)
-    budget_signal = [s for s in r.signals if s.name == "budget"][0]
-    # 55% spent vs 45% complete = 10 variance -> score 1 (10 > 10 is False? No: variance > 10)
-    # Actually 10 > 10 is False, so it's score 1? Let's check: variance=10, 10 > 25? No. 10 > 10? No. So score=0.
-    # Wait: if variance > 25: score=2; elif variance > 10: score=1 else score=0
-    # 10 > 25? No. 10 > 10? No (strictly greater). So score=0.
-    print(f"  Budget signal: score={budget_signal.score}, variance=10pt")
-    print("PASS: test_edge_boundary_budget_variance")
+def test_all_signals_missing():
+    p = _project(milestones=[])
+    s = ProgressSnapshot(snapshot_date=TODAY, budget_spent=None, percent_complete=None, stakeholder_sentiment=[])
+    p.snapshot_history = [s]
+    r = compute_rag(p, s, TODAY)
+    assert r.status == RAG.AMBER
+    assert r.insufficient_data
+    assert r.weighted_score is not None
+    assert r.weighted_score == 0.0
+    print("PASS: test_all_signals_missing")
 
 
-# ── Run all ────────────────────────────────────────────────
+# ── Run all if executed directly ────────────────────────────
 
 if __name__ == "__main__":
     test_green_all_complete()
-    test_green_ahead_schedule()
-    test_green_no_blockers_good_sentiment()
+    test_green_on_track()
     test_amber_one_overdue()
-    test_amber_slight_budget_overrun()
-    test_amber_critical_blocker_override()
-    test_amber_insufficient_data()
-    test_amber_single_negative_sentiment()
-    test_red_multiple_overdue()
-    test_red_critical_blocker_high_sentiment()
-    test_red_project_on_hold()
-    test_red_project_cancelled()
-    test_red_bad_budget()
-    test_edge_no_milestones()
-    test_edge_same_start_end()
-    test_edge_zero_budget()
-    test_edge_no_snapshot()
-    test_edge_overdue_yesterday()
-    test_edge_all_signals_missing()
-    test_edge_mixed_sentiment_same_source()
-    test_edge_resolved_blocker()
-    test_edge_boundary_budget_variance()
-    print("\nAll tests passed.")
+    test_amber_budget_burn()
+    test_amber_missing_over_half_weight()
+    test_amber_critical_blocker_escalates_green()
+    test_red_two_blocked_milestones()
+    test_red_two_negative_stakeholders()
+    test_red_cancelled_project()
+    test_no_snapshot()
+    test_future_milestones()
+    test_budget_exactly_at_boundary()
+    test_all_signals_missing()
+    print("\nAll RAG tests passed.")

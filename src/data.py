@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import date
 
-from projects import (
+from models.projects import (
     Project, ProgressSnapshot, Milestone, MilestoneStatus,
     Blocker, BlockerSeverity, SentimentEntry, SentimentScore,
 )
@@ -10,7 +10,6 @@ from projects import (
 def sample_projects() -> list[Project]:
     today = date(2026, 7, 11)
 
-    # ── Project A: Phoenix (Green-ish, some minor slippage) ─────────────
     alpha = Project(
         name="Project Alpha",
         stakeholders=["Client COO", "PM", "Engineering Lead"],
@@ -41,7 +40,6 @@ def sample_projects() -> list[Project]:
         notes="Solid progress. Vendor delay is minor, being tracked.",
     ))
 
-    # ── Project B: Phoenix (Amber – budget overrun, schedule slipping) ──
     beta = Project(
         name="Project Beta",
         stakeholders=["Client VP", "Program Manager", "Tech Lead"],
@@ -72,7 +70,6 @@ def sample_projects() -> list[Project]:
         notes="Budget overrun due to scope creep. Two blockers need attention.",
     ))
 
-    # ── Project C: Gamma (Red – critical blockers, way behind) ──────────
     gamma = Project(
         name="Project Gamma",
         stakeholders=["Client CIO", "Delivery Director", "Security Lead"],
@@ -103,7 +100,6 @@ def sample_projects() -> list[Project]:
         notes="Critical external dependency on regulator. Recovery plan needed urgently.",
     ))
 
-    # ── Project D: Delta (Green – smooth, ahead of schedule) ────────────
     delta = Project(
         name="Project Delta",
         stakeholders=["Client Director", "Team Lead"],
