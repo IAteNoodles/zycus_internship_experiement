@@ -20,8 +20,6 @@ def _init():
     seed()
 
 _init()
-if "_db_ver" not in st.session_state:
-    st.session_state._db_ver = 0
 
 st.set_page_config(page_title="Zycus", page_icon=":material/analytics:", layout="wide")
 
@@ -49,13 +47,6 @@ def _get_rag(pid: int):
 
 
 def _fetch_projects():
-    if "_db_ver" not in st.session_state:
-        st.session_state._db_ver = 0
-    return _fetch_projects_cached(st.session_state._db_ver)
-
-
-@st.cache_data(ttl=300)
-def _fetch_projects_cached(_ver: int) -> list[dict]:
     rows = database.list_projects()
     data = []
     for row in rows:
@@ -186,7 +177,6 @@ elif page == "Projects":
                             "stakeholders": [s.strip() for s in np_stake.split(",") if s.strip()],
                             "budget": np_budget, "start_date": np_start.isoformat(), "end_date": np_end.isoformat()})
                         st.toast(f"Created '{np_name}'", icon=":material/check:")
-                        st.session_state._db_ver += 1
                         st.rerun()
 
     if not data:
@@ -245,7 +235,6 @@ elif page == "Projects":
                     with cols[1]:
                         if st.button("Delete", type="primary"):
                             database.delete_project(pid)
-                            st.session_state._db_ver += 1
                             st.toast(f"Deleted '{name}'", icon=":material/delete:")
                             st.rerun()
 
@@ -274,7 +263,6 @@ elif page == "Projects":
                                 database.upsert_project({"id": pid, "name": e_name,
                                     "stakeholders": [s.strip() for s in e_stake.split(",") if s.strip()],
                                     "budget": e_budget, "start_date": e_start.isoformat(), "end_date": e_end.isoformat()})
-                                st.session_state._db_ver += 1
                                 st.toast("Saved", icon=":material/check:")
                                 st.rerun()
 
@@ -294,7 +282,6 @@ elif page == "Projects":
                         if st.form_submit_button(":material/add: Add milestone"):
                             if m_name and m_due:
                                 database.upsert_milestone({"project_id": pid, "name": m_name, "due_date": m_due.isoformat(), "status": m_status})
-                                st.session_state._db_ver += 1
                                 st.toast("Milestone added", icon=":material/check:")
                                 st.rerun()
 
@@ -319,7 +306,6 @@ elif page == "Projects":
                                         if not b.get("resolved"):
                                             if st.button("Resolve", key=f"resolve_{b['id']}"):
                                                 database.upsert_blocker({"id": b["id"], "resolved": True, "date_resolved": date.today().isoformat()})
-                                                st.session_state._db_ver += 1
                                                 st.rerun()
 
                             with st.form(f"blocker_{s['id']}", border=False):
@@ -331,7 +317,6 @@ elif page == "Projects":
                                     if b_desc and b_date:
                                         database.upsert_blocker({"snapshot_id": s["id"], "description": b_desc,
                                             "date_raised": b_date.isoformat(), "severity": b_sev})
-                                        st.session_state._db_ver += 1
                                         st.toast("Blocker added", icon=":material/check:")
                                         st.rerun()
 
@@ -348,7 +333,6 @@ elif page == "Projects":
                                     if src and cmt:
                                         database.upsert_sentiment({"snapshot_id": s["id"], "source": src,
                                             "date_recorded": sdt.isoformat(), "comment": cmt})
-                                        st.session_state._db_ver += 1
                                         st.toast("Sentiment added", icon=":material/check:")
                                         st.rerun()
 
@@ -362,7 +346,6 @@ elif page == "Projects":
                             if sd:
                                 database.upsert_snapshot({"project_id": pid, "snapshot_date": sd.isoformat(),
                                     "budget_spent": sb or None, "percent_complete": sp or None, "notes": sn or None})
-                                st.session_state._db_ver += 1
                                 st.toast("Snapshot added", icon=":material/check:")
                                 st.rerun()
 
