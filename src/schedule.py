@@ -3,13 +3,34 @@ import os
 from datetime import date, datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from fpdf import FPDF
 
 from database import list_projects, get_project, save_report, project_to_domain
 from models.rag import compute_rag
 from models.sentiment import analyze_sentiment
 from reports import weekly_narrative, monthly_content
 
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+OUTPUT_DIR = os.getenv("ZYCLUS_OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "output"))
+
+
+def _pdf_text(value: str) -> str:
+    return value.encode("latin-1", "replace").decode("latin-1")
+
+
+def _write_weekly_pdf(path: str, report_date: date, summary: str) -> None:
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Helvetica", style="B", size=18)
+    pdf.multi_cell(0, 10, _pdf_text(f"Weekly Report - {report_date}"))
+    pdf.ln(4)
+    pdf.set_font("Helvetica", size=10)
+    for paragraph in summary.splitlines():
+        if paragraph.strip():
+            pdf.multi_cell(0, 5, _pdf_text(paragraph))
+        else:
+            pdf.ln(4)
+    pdf.output(path)
 
 
 def _run_weekly():
@@ -39,11 +60,9 @@ def _run_weekly():
                 summaries.append(f"[SKIP] {row.get('name', '?')}: {e}")
 
         summary_text = "\n\n".join(summaries) if summaries else "No project data available."
-        fname = f"weekly_{today.isoformat()}.txt"
+        fname = f"weekly_{today.isoformat()}.pdf"
         fpath = os.path.join(OUTPUT_DIR, fname)
-        with open(fpath, "w") as f:
-            f.write(f"Weekly Report - {today}\n{'='*50}\n\n")
-            f.write(summary_text)
+        _write_weekly_pdf(fpath, today, summary_text)
         save_report("weekly", today.isoformat(), fpath, summary_text[:500])
         print(f"[scheduler] Weekly report saved: {fpath}")
     except Exception as e:

@@ -14,7 +14,7 @@ import database
 from database import project_to_domain
 from models.rag import compute_rag, RagResult, RAG
 from models.sentiment import analyze_sentiment
-from schedule import start_scheduler, stop_scheduler
+from schedule import OUTPUT_DIR, _run_monthly, _run_weekly, start_scheduler, stop_scheduler
 from seed import seed
 
 load_dotenv()
@@ -39,7 +39,7 @@ app = FastAPI(title="Zycus API", default_response_class=SafeJSONResponse)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-os.makedirs(os.path.join(os.path.dirname(__file__), "output"), exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 @app.on_event("startup")

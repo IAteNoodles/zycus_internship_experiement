@@ -1,12 +1,15 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+ENV ZYCLUS_DB=/app/data/zycus.db \
+    ZYCLUS_OUTPUT_DIR=/app/output
 
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
 RUN pip install --no-cache-dir . && rm -rf /root/.cache
+
+COPY .env ./
 
 RUN mkdir -p /app/output /app/data
 

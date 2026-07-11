@@ -2,9 +2,12 @@
 .gitignore
 __pycache__
 *.pyc
+*.egg-info/
+*.db
+.pytest_cache
+.coverage
 .venv
 venv
-.env
 .opencode
 .agents
 .claude

@@ -1,41 +1,77 @@
-# Zycus — Project Health Reporting Agent
+# Zycus - Project Health Reporting Agent
 
-Automated project health monitoring with RAG (Red/Amber/Green) scoring, LLM-generated weekly narratives, monthly PPTX synthesis, and a FastAPI web dashboard.
+Automated project health monitoring with RAG (Red/Amber/Green) scoring, LLM-generated weekly narratives, monthly PPTX reports, a Streamlit UI, and a FastAPI API.
 
 ## Quick Start
 
 ```bash
 uv sync
-uv run python seed.py                   # seed 4 sample projects
-uv run uvicorn app:app --host 0.0.0.0 --port 8000
+uv run streamlit run src/ui.py
 ```
 
-Open http://localhost:8000
+The UI initializes and seeds the local SQLite database when it is empty. Run the API separately when needed:
+
+```bash
+uv run uvicorn --app-dir src api:app --host 0.0.0.0 --port 8000
+```
 
 ## Docker
+
+Create a root `.env` with at least one LLM key:
+
+```env
+GROQ_API_KEY=...
+# or
+OPENAI_API_KEY=...
+```
+
+Build and start both services:
 
 ```bash
 docker compose up --build
 ```
 
+- UI: http://localhost:8501
+- API health: http://localhost:8000/api/health
+- SQLite data persists in the `zycus_data` volume.
+- Generated reports persist in the `zycus_output` volume.
+
+The Docker image copies `.env` at build time. Do not push or share the resulting image because it contains the LLM credentials.
+
+## Scheduled Reports
+
+The API owns one APScheduler instance while the container is running:
+
+- Weekly report: Monday at 09:00 UTC
+- Monthly report: first day of each month at 08:00 UTC
+
+Scheduled reports use Groq first, then OpenRouter, when the corresponding key is configured. They are not generated while the container is stopped.
+Weekly reports are generated as downloadable PDFs; monthly reports include a PPTX.
+
 ## CLI
 
 ```bash
-uv run python main.py                    # weekly analysis
-uv run python main.py --synthesize       # + monthly PPTX
+uv run python src/seed.py                  # seed 4 sample projects
+uv run python src/main.py                  # weekly analysis
+uv run python src/main.py --synthesize     # monthly PPTX
 ```
 
 ## Architecture
 
 | Layer | Tech |
 |-------|------|
-| Web | FastAPI + Jinja2 + Bootstrap 5 |
-| Schedule | APScheduler (weekly Mon 9AM, monthly 1st 8AM) |
+| UI | Streamlit |
+| API | FastAPI + Uvicorn |
+| Schedule | APScheduler |
 | LLM | Groq (primary) / OpenRouter (fallback) |
 | DB | SQLite (WAL mode) |
-| CLI | argparse + python-pptx |
+| Reports | python-pptx |
 
 ## API
 
-- `GET /api/projects` — all projects with RAG
-- `GET /api/projects/{id}/rag` — detailed RAG signals
+- `GET /api/projects` - all projects with RAG data
+- `GET /api/projects/{id}` - project detail
+- `GET /api/reports` - generated reports
+- `POST /api/reports/generate/weekly` - generate a weekly report
+- `POST /api/reports/generate/monthly` - generate a monthly report
+- `GET /api/health` - health check

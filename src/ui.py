@@ -11,14 +11,13 @@ from database import project_to_domain
 from models.rag import compute_rag
 from models.sentiment import analyze_sentiment
 from reports import weekly_narrative
-from schedule import _run_weekly, _run_monthly, start_scheduler
+from schedule import _run_weekly, _run_monthly
 from seed import seed
 
 @st.cache_resource
 def _init():
     database.init()
     seed()
-    start_scheduler()
 
 _init()
 if "_db_ver" not in st.session_state:
@@ -399,8 +398,11 @@ elif page == "Reports":
                     fp = r.get("file_path")
                     if fp and os.path.exists(fp):
                         with open(fp, "rb") as f:
-                            mime = ("application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                                    if fp.endswith(".pptx") else "text/plain")
+                            mime = (
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                if fp.endswith(".pptx") else "application/pdf"
+                                if fp.endswith(".pdf") else "text/plain"
+                            )
                             st.download_button(":material/download: Download", data=f,
                                                file_name=os.path.basename(fp), mime=mime, key=f"dl_{r['id']}")
                     else:
