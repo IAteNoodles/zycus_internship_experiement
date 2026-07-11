@@ -47,19 +47,40 @@ def weekly_narrative(project: Project, result: RagResult) -> str:
     narrative = ask_llm(_WEEKLY_SYSTEM, data, max_tokens=250, temperature=0.3)
     if narrative:
         return narrative.strip()
-    # fallback if LLM unavailable
-    status = result.status
-    signals = {s.name: s for s in result.signals}
-    parts = [f"{project.name} is {status}."]
-    if status == RAG.GREEN:
-        parts.append("All signals are healthy. No immediate action needed.")
-    elif status == RAG.RED:
-        parts.append("Immediate attention required.")
-    else:
-        parts.append("Monitor closely.")
     snap = project.latest
-    if snap and snap.open_blockers():
-        parts.append(f"Open blockers: {len(snap.open_blockers())}.")
+    parts = [f"{project.name} is {result.status}."]
+
+    sigs = {s.name: s for s in result.signals}
+    schedule = sigs.get("schedule")
+    budget = sigs.get("budget")
+    blockers_i = sigs.get("blockers")
+    sentiment = sigs.get("sentiment")
+
+    issues = []
+    if schedule and schedule.score and schedule.score >= 1:
+        late = sum(1 for m in project.milestones if m.is_overdue())
+        issues.append(f"{late} milestone(s) overdue")
+    if budget and budget.score and budget.score >= 1:
+        issues.append("budget variance exceeds threshold")
+    if blockers_i and blockers_i.score and blockers_i.score >= 1:
+        n = len(snap.open_blockers()) if snap and snap.open_blockers() else 0
+        issues.append(f"{n} open blocker(s)")
+    if sentiment and sentiment.score and sentiment.score >= 1:
+        neg = len([e for e in snap.stakeholder_sentiment if e.score == SentimentScore.NEGATIVE]) if snap else 0
+        if neg:
+            issues.append(f"{neg} stakeholder(s) negative")
+    if result.overrides_applied:
+        issues.append("overrides applied: " + "; ".join(result.overrides_applied))
+
+    if issues:
+        parts.append("Issues: " + ", ".join(issues) + ".")
+    else:
+        parts.append("No significant issues detected.")
+
+    if result.status == RAG.RED:
+        parts.append("Immediate attention required.")
+    elif result.status == RAG.AMBER:
+        parts.append("Monitor closely.")
     return " ".join(parts)
 
 
@@ -88,13 +109,35 @@ def monthly_content(results: list[tuple[Project, RagResult]], as_of: date) -> di
         except json.JSONDecodeError:
             pass
 
-    # fallback
     green = sum(1 for _, r in results if r.status == RAG.GREEN)
-    amber = sum(1 for _, r in results if r.status == RAG.AMBER)
-    red = sum(1 for _, r in results if r.status == RAG.RED)
+    amber_n = sum(1 for _, r in results if r.status == RAG.AMBER)
+    red_n = sum(1 for _, r in results if r.status == RAG.RED)
+    total = len(results)
+    exec_summary = f"Portfolio review for {as_of.strftime('%B %Y')}: {total} project(s) tracked. "
+    exec_summary += f"{green} Green, {amber_n} Amber, {red_n} Red."
+    non_green = [p.name for p, r in results if r.status != RAG.GREEN]
+    if non_green:
+        exec_summary += f" Projects requiring attention: {', '.join(non_green)}."
+
+    risks = []
+    for p, r in results:
+        if r.status != RAG.GREEN:
+            risks.append(f"{p.name} ({r.status}): {r.weighted_score:.2f} weighted score" if r.weighted_score is not None else f"{p.name} ({r.status})")
+            for o in r.overrides_applied:
+                risks.append(f"  Override: {o}")
+
+    recs = []
+    if red_n:
+        recs.append(f"Schedule steering committee for {red_n} Red project(s) immediately.")
+    if amber_n:
+        recs.append(f"Review recovery plans for {amber_n} Amber project(s).")
+    if non_green:
+        recs.append("Assess resource allocation and adjust priorities.")
+    recs.append("Continue monitoring Green projects for early warning signs.")
+
     return {
-        "executive_summary": f"Portfolio: {green} Green, {amber} Amber, {red} Red.",
-        "trends": [f"{p.name}: {r.status}" for p, r in results],
-        "risks": [f"{p.name} requires monitoring" for p, r in results if r.status != RAG.GREEN],
-        "recommendations": ["Review resource allocation.", "Schedule steering committee for Red projects."],
+        "executive_summary": exec_summary,
+        "trends": [f"{p.name}: {r.status} (score {r.weighted_score:.2f})" if r.weighted_score is not None else f"{p.name}: {r.status}" for p, r in results],
+        "risks": risks or ["No significant risks identified."],
+        "recommendations": recs,
     }

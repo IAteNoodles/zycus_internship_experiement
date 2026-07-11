@@ -23,6 +23,8 @@ PROVIDERS: list[dict[str, Any]] = [
     },
 ]
 
+_REQUEST_TIMEOUT = 30
+
 
 def ask_llm(
     system: str,
@@ -36,7 +38,7 @@ def ask_llm(
         if not api_key:
             continue
         try:
-            client = OpenAI(api_key=api_key, base_url=p["base_url"])
+            client = OpenAI(api_key=api_key, base_url=p["base_url"], timeout=_REQUEST_TIMEOUT)
             kwargs = dict(model=p["model"], messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

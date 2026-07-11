@@ -11,18 +11,21 @@ DB_PATH = os.getenv("ZYCLUS_DB", os.path.join(os.path.dirname(__file__), "zycus.
 
 @contextmanager
 def conn():
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA foreign_keys=ON")
+    db = None
     try:
+        db = sqlite3.connect(DB_PATH, timeout=5)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA foreign_keys=ON")
         yield db
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
+    except sqlite3.Error as e:
+        if db:
+            db.rollback()
+        raise RuntimeError(f"Database error: {e}") from e
     finally:
-        db.close()
+        if db:
+            db.close()
 
 
 def init():
@@ -293,34 +296,54 @@ def project_to_domain(proj: dict):
         end_date=dt_date.fromisoformat(proj["end_date"]),
     )
     for m in proj.get("milestones", []):
+        status = m["status"]
+        try:
+            ms = MilestoneStatus(status)
+        except ValueError:
+            ms = MilestoneStatus.NOT_STARTED
         p.milestones.append(Milestone(
             name=m["name"],
             due_date=dt_date.fromisoformat(m["due_date"]),
-            status=MilestoneStatus(m["status"]),
+            status=ms,
             actual_completion_date=dt_date.fromisoformat(m["actual_completion_date"]) if m.get("actual_completion_date") else None,
         ))
     for s in proj.get("snapshots", []):
+        status = s.get("status", "in_progress")
+        try:
+            ps = ProjectStatus(status)
+        except ValueError:
+            ps = ProjectStatus.IN_PROGRESS
         snap = ProgressSnapshot(
             snapshot_date=dt_date.fromisoformat(s["snapshot_date"]),
-            status=ProjectStatus(s["status"]),
+            status=ps,
             budget_spent=s.get("budget_spent"),
             percent_complete=s.get("percent_complete"),
             notes=s.get("notes"),
         )
         for b in s.get("blockers", []):
+            severity = b["severity"]
+            try:
+                bs = BlockerSeverity(severity)
+            except ValueError:
+                bs = BlockerSeverity.MEDIUM
             snap.blockers.append(Blocker(
                 description=b["description"],
                 date_raised=dt_date.fromisoformat(b["date_raised"]),
-                severity=BlockerSeverity(b["severity"]),
+                severity=bs,
                 resolved=bool(b["resolved"]),
                 date_resolved=dt_date.fromisoformat(b["date_resolved"]) if b.get("date_resolved") else None,
             ))
         for e in s.get("sentiment", []):
+            score = e.get("score", "unknown")
+            try:
+                ss = SentimentScore(score)
+            except ValueError:
+                ss = SentimentScore.UNKNOWN
             snap.stakeholder_sentiment.append(SentimentEntry(
                 source=e["source"],
                 date_recorded=dt_date.fromisoformat(e["date_recorded"]),
                 comment=e["comment"],
-                score=SentimentScore(e["score"]) if e.get("score") != "unknown" else SentimentScore.UNKNOWN,
+                score=ss,
             ))
         p.add_snapshot(snap)
     return p

@@ -2,7 +2,7 @@
 {% block title %}Reports - Zycus{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="mb-0">Reports</h3>
+  <h3 class="mb-0 fw-semibold">Reports</h3>
   <div class="d-flex gap-2">
     <form method="post" action="/reports/generate/weekly">
       <button class="btn btn-sm btn-outline-primary">Generate Weekly</button>
@@ -41,6 +41,9 @@
   {% endfor %}
 </div>
 {% else %}
-<p class="text-muted">No reports generated yet.</p>
+<div class="text-center py-5">
+  <p class="text-muted fs-5 mb-2">No reports yet</p>
+  <p class="text-muted small">Generate a weekly or monthly report above.</p>
+</div>
 {% endif %}
 {% endblock %}

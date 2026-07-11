@@ -1,12 +1,12 @@
 from __future__ import annotations
 import os
+import traceback
 from datetime import date, datetime
 from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Form, Query, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import database
@@ -39,16 +39,38 @@ def shutdown():
 
 # ── Helpers ────────────────────────────────────────────────
 
-def compute_current(proj_dict: dict) -> tuple[Optional[RagResult], Optional[str]]:
+def _proj_domain(proj_dict: dict):
     proj = project_to_domain(proj_dict)
     snap = proj.latest
     if not snap:
-        return None, None
+        return proj, None, None
     for entry in snap.stakeholder_sentiment:
         entry.score = analyze_sentiment(entry.comment)
     result = compute_rag(proj, snap)
-    narrative = weekly_narrative(proj, result)
+    return proj, snap, result
+
+
+def compute_rag_only(proj_dict: dict) -> tuple[Optional[RagResult], Optional[str]]:
+    proj, snap, result = _proj_domain(proj_dict)
+    if not result:
+        return None, None
+    return result, None
+
+
+def compute_full(proj_dict: dict) -> tuple[Optional[RagResult], Optional[str]]:
+    proj, snap, result = _proj_domain(proj_dict)
+    if not result:
+        return None, None
+    try:
+        narrative = weekly_narrative(proj, result)
+    except Exception:
+        narrative = None
     return result, narrative
+
+
+def _flash_url(url: str, msg: str, type: str = "success") -> str:
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}flash={msg}&flash_type={type}"
 
 
 # ── Dashboard ──────────────────────────────────────────────
@@ -57,9 +79,14 @@ def compute_current(proj_dict: dict) -> tuple[Optional[RagResult], Optional[str]
 def dashboard(request: Request):
     rows = database.list_projects()
     projects = []
+    errors = []
     for row in rows:
         proj = database.get_project(row["id"])
-        result, narrative = compute_current(proj)
+        try:
+            result, _ = compute_rag_only(proj)
+        except Exception as e:
+            errors.append(f"{proj['name']}: {e}")
+            result = None
         projects.append({
             "id": proj["id"],
             "name": proj["name"],
@@ -69,10 +96,10 @@ def dashboard(request: Request):
             "milestone_count": len(proj.get("milestones", [])),
             "snapshot_count": len(proj.get("snapshots", [])),
             "rag": result.status if result else "N/A",
-            "narrative": narrative or "No data",
+            "narrative": None,
         })
     projects.sort(key=lambda p: STATUS_ORDER.get(p["rag"], 99))
-    return templates.TemplateResponse(request, "dashboard.html", {"projects": projects})
+    return templates.TemplateResponse(request, "dashboard.html", {"projects": projects, "errors": errors})
 
 
 # ── Project CRUD ───────────────────────────────────────────
@@ -92,7 +119,7 @@ def create_project(name: str = Form(...), stakeholders: str = Form(""),
         "start_date": start_date,
         "end_date": end_date,
     })
-    return RedirectResponse(f"/project/{pid}", status_code=303)
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Project created", "success"), status_code=303)
 
 
 @app.get("/project/{pid}", response_class=HTMLResponse)
@@ -100,7 +127,10 @@ def project_detail(request: Request, pid: int):
     proj = database.get_project(pid)
     if not proj:
         raise HTTPException(404, "Project not found")
-    result, narrative = compute_current(proj)
+    try:
+        result, narrative = compute_full(proj)
+    except Exception:
+        result, narrative = None, None
     return templates.TemplateResponse(request, "project.html", {
         "proj": proj, "result": result, "narrative": narrative,
     })
@@ -114,13 +144,13 @@ def update_project(pid: int, name: str = Form(...), stakeholders: str = Form("")
         "stakeholders": [s.strip() for s in stakeholders.split(",") if s.strip()],
         "budget": budget, "start_date": start_date, "end_date": end_date,
     })
-    return RedirectResponse(f"/project/{pid}", status_code=303)
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Project updated", "success"), status_code=303)
 
 
 @app.post("/project/{pid}/delete")
 def delete_project(pid: int):
     database.delete_project(pid)
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse(_flash_url("/", "Project deleted", "success"), status_code=303)
 
 
 # ── Milestones ─────────────────────────────────────────────
@@ -132,7 +162,7 @@ def add_milestone(pid: int, name: str = Form(...), due_date: str = Form(...),
         "project_id": pid, "name": name, "due_date": due_date,
         "status": status, "actual_completion_date": actual_completion_date or None,
     })
-    return RedirectResponse(f"/project/{pid}", status_code=303)
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Milestone added", "success"), status_code=303)
 
 
 @app.post("/milestone/{mid}/delete")
@@ -141,7 +171,7 @@ def delete_milestone(mid: int):
     m = database._get_milestone(mid)
     pid = m["project_id"] if m else 0
     database.delete_milestone(mid)
-    return RedirectResponse(f"/project/{pid}", status_code=303)
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Milestone deleted", "success"), status_code=303)
 
 
 # ── Snapshots ──────────────────────────────────────────────
@@ -155,7 +185,7 @@ def add_snapshot(pid: int, snapshot_date: str = Form(...),
         "project_id": pid, "snapshot_date": snapshot_date,
         "budget_spent": budget_spent, "percent_complete": percent_complete, "notes": notes or None,
     })
-    return RedirectResponse(f"/project/{pid}", status_code=303)
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Snapshot added", "success"), status_code=303)
 
 
 @app.post("/snapshot/{sid}/delete")
@@ -164,7 +194,7 @@ def delete_snapshot(sid: int):
     s = database._get_snapshot(sid)
     pid = s["project_id"] if s else 0
     database.delete_snapshot(sid)
-    return RedirectResponse(f"/project/{pid}", status_code=303)
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Snapshot deleted", "success"), status_code=303)
 
 
 @app.post("/snapshot/{sid}/blocker")
@@ -176,13 +206,16 @@ def add_blocker(sid: int, description: str = Form(...), date_raised: str = Form(
         "date_raised": date_raised, "severity": severity,
     })
     s = database._get_snapshot(sid)
-    return RedirectResponse(f"/project/{s['project_id']}", status_code=303)
+    pid = s["project_id"] if s else 0
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Blocker added", "success"), status_code=303)
 
 
 @app.post("/blocker/{bid}/resolve")
 def resolve_blocker(bid: int):
     from database import get_project
     b = database._get_blocker(bid)
+    if not b:
+        return RedirectResponse(_flash_url("/", "Blocker not found", "error"), status_code=303)
     database.upsert_blocker({
         "id": bid, "snapshot_id": b["snapshot_id"],
         "description": b["description"], "date_raised": b["date_raised"],
@@ -190,16 +223,20 @@ def resolve_blocker(bid: int):
         "date_resolved": date.today().isoformat(),
     })
     s = database._get_snapshot(b["snapshot_id"])
-    return RedirectResponse(f"/project/{s['project_id']}", status_code=303)
+    pid = s["project_id"] if s else 0
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Blocker resolved", "success"), status_code=303)
 
 
 @app.post("/blocker/{bid}/delete")
 def delete_blocker(bid: int):
     from database import get_project
     b = database._get_blocker(bid)
-    database.delete_blocker(bid)
-    s = database._get_snapshot(b["snapshot_id"])
-    return RedirectResponse(f"/project/{s['project_id']}", status_code=303)
+    sid = b["snapshot_id"] if b else 0
+    if b:
+        database.delete_blocker(bid)
+    s = database._get_snapshot(sid) if sid else None
+    pid = s["project_id"] if s else 0
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Blocker deleted", "success"), status_code=303)
 
 
 # ── Sentiment ──────────────────────────────────────────────
@@ -212,7 +249,8 @@ def add_sentiment(sid: int, source: str = Form(...), comment: str = Form(...)):
         "date_recorded": date.today().isoformat(), "comment": comment,
     })
     s = database._get_snapshot(sid)
-    return RedirectResponse(f"/project/{s['project_id']}", status_code=303)
+    pid = s["project_id"] if s else 0
+    return RedirectResponse(_flash_url(f"/project/{pid}", "Sentiment added", "success"), status_code=303)
 
 
 # ── Reports ────────────────────────────────────────────────
@@ -225,14 +263,20 @@ def reports_list(request: Request, type: Optional[str] = Query(None)):
 
 @app.post("/reports/generate/weekly")
 def generate_weekly():
-    _run_weekly()
-    return RedirectResponse("/reports", status_code=303)
+    try:
+        _run_weekly()
+        return RedirectResponse(_flash_url("/reports", "Weekly report generated", "success"), status_code=303)
+    except Exception as e:
+        return RedirectResponse(_flash_url("/reports", f"Weekly report failed: {e}", "error"), status_code=303)
 
 
 @app.post("/reports/generate/monthly")
 def generate_monthly():
-    _run_monthly()
-    return RedirectResponse("/reports", status_code=303)
+    try:
+        _run_monthly()
+        return RedirectResponse(_flash_url("/reports", "Monthly report generated", "success"), status_code=303)
+    except Exception as e:
+        return RedirectResponse(_flash_url("/reports", f"Monthly report failed: {e}", "error"), status_code=303)
 
 
 @app.get("/reports/download/{rid}")
@@ -247,7 +291,7 @@ def download_report(rid: int):
 @app.post("/reports/{rid}/delete")
 def delete_report(rid: int):
     database.delete_report(rid)
-    return RedirectResponse("/reports", status_code=303)
+    return RedirectResponse(_flash_url("/reports", "Report deleted", "success"), status_code=303)
 
 
 # ── API for programmatic access ────────────────────────────
@@ -258,11 +302,14 @@ def api_projects():
     out = []
     for row in rows:
         proj = database.get_project(row["id"])
-        result, narrative = compute_current(proj)
+        try:
+            result, _ = compute_rag_only(proj)
+        except Exception:
+            result = None
         out.append({
             "id": proj["id"], "name": proj["name"],
             "rag": result.status if result else "N/A",
-            "narrative": narrative,
+            "narrative": None,
         })
     return out
 
@@ -272,7 +319,10 @@ def api_project_rag(pid: int):
     proj = database.get_project(pid)
     if not proj:
         raise HTTPException(404)
-    result, narrative = compute_current(proj)
+    try:
+        result, narrative = compute_full(proj)
+    except Exception:
+        result, narrative = None, None
     if not result:
         return {"status": "N/A", "reason": "No snapshot data"}
     return {

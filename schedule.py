@@ -13,81 +13,93 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
 
 def _run_weekly():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    today = date.today()
-    rows = list_projects()
-    summaries = []
-    for row in rows:
-        proj = get_project(row["id"])
-        if not proj:
-            continue
-        p = project_to_domain(proj)
-        snap = p.latest
-        if not snap:
-            continue
-        for entry in snap.stakeholder_sentiment:
-            entry.score = analyze_sentiment(entry.comment)
-        result = compute_rag(p, snap, today)
-        narrative = weekly_narrative(p, result)
-        summaries.append(f"[{result.status}] {p.name}: {narrative}")
+    try:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        today = date.today()
+        rows = list_projects()
+        summaries = []
+        for row in rows:
+            try:
+                proj = get_project(row["id"])
+                if not proj:
+                    continue
+                p = project_to_domain(proj)
+                snap = p.latest
+                if not snap:
+                    continue
+                for entry in snap.stakeholder_sentiment:
+                    entry.score = analyze_sentiment(entry.comment)
+                result = compute_rag(p, snap, today)
+                narrative = weekly_narrative(p, result)
+                summaries.append(f"[{result.status}] {p.name}: {narrative}")
+            except Exception as e:
+                summaries.append(f"[SKIP] {row.get('name', '?')}: {e}")
 
-    summary_text = "\n\n".join(summaries)
-    fname = f"weekly_{today.isoformat()}.txt"
-    fpath = os.path.join(OUTPUT_DIR, fname)
-    with open(fpath, "w") as f:
-        f.write(f"Weekly Report - {today}\n{'='*50}\n\n")
-        f.write(summary_text)
-    save_report("weekly", today.isoformat(), fpath, summary_text[:500])
-    print(f"[scheduler] Weekly report saved: {fpath}")
+        summary_text = "\n\n".join(summaries)
+        fname = f"weekly_{today.isoformat()}.txt"
+        fpath = os.path.join(OUTPUT_DIR, fname)
+        with open(fpath, "w") as f:
+            f.write(f"Weekly Report - {today}\n{'='*50}\n\n")
+            f.write(summary_text)
+        save_report("weekly", today.isoformat(), fpath, summary_text[:500])
+        print(f"[scheduler] Weekly report saved: {fpath}")
+    except Exception as e:
+        print(f"[scheduler] Weekly report FAILED: {e}")
 
 
 def _run_monthly():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    today = date.today()
-    rows = list_projects()
-    results = []
-    for row in rows:
-        proj = get_project(row["id"])
-        if not proj:
-            continue
-        p = project_to_domain(proj)
-        snap = p.latest
-        if not snap:
-            continue
-        for entry in snap.stakeholder_sentiment:
-            entry.score = analyze_sentiment(entry.comment)
-        result = compute_rag(p, snap, today)
-        results.append((p, result))
-
-    content = monthly_content(results, today)
-    summary_text = content.get("executive_summary", "")
-
-    fname = f"monthly_{today.isoformat()}.txt"
-    fpath_txt = os.path.join(OUTPUT_DIR, fname)
-    with open(fpath_txt, "w") as f:
-        f.write(f"Monthly Report - {today}\n{'='*50}\n\n")
-        for p, r in results:
-            f.write(f"[{r.status}] {p.name}\n")
-            f.write(weekly_narrative(p, r) + "\n\n")
-        f.write("--- Executive Summary ---\n")
-        f.write(content.get("executive_summary", ""))
-        f.write("\n\nTrends:\n")
-        for t in content.get("trends", []):
-            f.write(f"  - {t}\n")
-        f.write("\nRecommendations:\n")
-        for rec in content.get("recommendations", []):
-            f.write(f"  - {rec}\n")
-
     try:
-        from main import synthesize_monthly
-        fpath_pptx = synthesize_monthly(results, today, os.path.join(OUTPUT_DIR, f"monthly_{today.isoformat()}.pptx"))
-        save_report("monthly", today.isoformat(), fpath_pptx, summary_text[:500])
-        print(f"[scheduler] Monthly PPTX saved: {fpath_pptx}")
-    except Exception as e:
-        print(f"[scheduler] PPTX generation failed: {e}")
-        save_report("monthly", today.isoformat(), fpath_txt, summary_text[:500])
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        today = date.today()
+        rows = list_projects()
+        results = []
+        for row in rows:
+            try:
+                proj = get_project(row["id"])
+                if not proj:
+                    continue
+                p = project_to_domain(proj)
+                snap = p.latest
+                if not snap:
+                    continue
+                for entry in snap.stakeholder_sentiment:
+                    entry.score = analyze_sentiment(entry.comment)
+                result = compute_rag(p, snap, today)
+                results.append((p, result))
+            except Exception as e:
+                print(f"[scheduler] Skipping {row.get('name', '?')}: {e}")
 
-    print(f"[scheduler] Monthly report saved: {fpath_txt}")
+        content = monthly_content(results, today)
+        summary_text = content.get("executive_summary", "")
+
+        fname = f"monthly_{today.isoformat()}.txt"
+        fpath_txt = os.path.join(OUTPUT_DIR, fname)
+        with open(fpath_txt, "w") as f:
+            f.write(f"Monthly Report - {today}\n{'='*50}\n\n")
+            for p, r in results:
+                f.write(f"[{r.status}] {p.name}\n")
+                f.write(weekly_narrative(p, r) + "\n\n")
+            f.write("--- Executive Summary ---\n")
+            f.write(content.get("executive_summary", ""))
+            f.write("\n\nTrends:\n")
+            for t in content.get("trends", []):
+                f.write(f"  - {t}\n")
+            f.write("\nRecommendations:\n")
+            for rec in content.get("recommendations", []):
+                f.write(f"  - {rec}\n")
+
+        try:
+            from main import synthesize_monthly
+            fpath_pptx = synthesize_monthly(results, today, os.path.join(OUTPUT_DIR, f"monthly_{today.isoformat()}.pptx"))
+            save_report("monthly", today.isoformat(), fpath_pptx, summary_text[:500])
+            print(f"[scheduler] Monthly PPTX saved: {fpath_pptx}")
+        except Exception as e:
+            print(f"[scheduler] PPTX generation failed: {e}")
+            save_report("monthly", today.isoformat(), fpath_txt, summary_text[:500])
+
+        print(f"[scheduler] Monthly report saved: {fpath_txt}")
+    except Exception as e:
+        print(f"[scheduler] Monthly report FAILED: {e}")
 
 
 scheduler = BackgroundScheduler()
