@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}{{ proj.name }} - Zycus{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="mb-1">
+      {% if result %}
+      <span class="badge badge-rag rag-{{ result.status }} fs-5 me-2">{{ result.status }}</span>
+      {% endif %}
+      {{ proj.name }}
+    </h3>
+    <small class="text-muted">
+      Budget: ${{ "{:,.0f}".format(proj.budget) }} &middot;
+      Stakeholders: {{ proj.stakeholders|join(", ") }} &middot;
+      {{ proj.start_date }} &rarr; {{ proj.end_date }}
+    </small>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/project/new" class="btn btn-sm btn-outline-primary">+ New</a>
+    <form method="post" action="/project/{{ proj.id }}/delete" onsubmit="return confirm('Delete this project?')">
+      <button class="btn btn-sm btn-outline-danger">Delete</button>
+    </form>
+  </div>
+</div>
+
+{% if narrative %}
+<div class="alert alert-info small">{{ narrative }}</div>
+{% endif %}
+
+{% if result %}
+<div class="card mb-3">
+  <div class="card-header">Signal Scores</div>
+  <div class="card-body">
+    <div class="row text-center">
+      {% for s in result.signals %}
+      <div class="col">
+        <div class="fw-bold signal-{{ s.score if s.score is not none else 99 }}">{{ s.score if s.score is not none else "?" }}/2</div>
+        <small>{{ s.name|capitalize }}</small>
+        <div class="text-muted small">{{ s.rationale[:60] }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if result.overrides_applied %}
+    <hr>
+    {% for o in result.overrides_applied %}
+    <div class="small text-warning-emphasis">&raquo; {{ o }}</div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+
+  <!-- Milestones -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between">
+        <span>Milestones</span>
+        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#milestoneForm">+ Add</button>
+      </div>
+      <div class="collapse" id="milestoneForm">
+        <div class="card-body border-bottom">
+          <form method="post" action="/project/{{ proj.id }}/milestone">
+            <div class="row g-2">
+              <div class="col-4"><input type="text" name="name" class="form-control form-control-sm" placeholder="Name" required></div>
+              <div class="col-3"><input type="date" name="due_date" class="form-control form-control-sm" required></div>
+              <div class="col-3">
+                <select name="status" class="form-select form-select-sm">
+                  <option value="not_started">Not Started</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="complete">Complete</option>
+                  <option value="at_risk">At Risk</option>
+                  <option value="blocked">Blocked</option>
+                </select>
+              </div>
+              <div class="col-2"><button class="btn btn-sm btn-primary w-100">Add</button></div>
+            </div>
+          </form>
+        </div>
+      </div>
+      <ul class="list-group list-group-flush small">
+        {% for m in proj.milestones %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <strong>{{ m.name }}</strong>
+            <span class="badge bg-secondary ms-1">{{ m.status }}</span>
+            {% if m.actual_completion_date %}<span class="text-muted ms-1">done {{ m.actual_completion_date }}</span>{% endif %}
+          </div>
+          <small class="text-muted">{{ m.due_date }}</small>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">No milestones.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <!-- Snapshots -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between">
+        <span>Snapshots</span>
+        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#snapshotForm">+ Add</button>
+      </div>
+      <div class="collapse" id="snapshotForm">
+        <div class="card-body border-bottom">
+          <form method="post" action="/project/{{ proj.id }}/snapshot">
+            <div class="row g-2">
+              <div class="col-4"><input type="date" name="snapshot_date" class="form-control form-control-sm" required></div>
+              <div class="col-3"><input type="number" step="0.01" name="budget_spent" class="form-control form-control-sm" placeholder="Spent ($)"></div>
+              <div class="col-3"><input type="number" step="0.1" name="percent_complete" class="form-control form-control-sm" placeholder="% Complete"></div>
+              <div class="col-2"><button class="btn btn-sm btn-primary w-100">Add</button></div>
+            </div>
+            <div class="mt-2"><input type="text" name="notes" class="form-control form-control-sm" placeholder="Notes (optional)"></div>
+          </form>
+        </div>
+      </div>
+      <div class="list-group list-group-flush small">
+        {% for s in proj.snapshots %}
+        <div class="list-group-item">
+          <div class="d-flex justify-content-between">
+            <strong>{{ s.snapshot_date }}</strong>
+            <span class="badge bg-secondary">{{ s.status }}</span>
+          </div>
+          <div class="text-muted mb-1">
+            Spent: ${{ "{:,.0f}".format(s.budget_spent) if s.budget_spent else "N/A" }} &middot;
+            Complete: {{ s.percent_complete if s.percent_complete is not none else "N/A" }}%
+          </div>
+          {% if s.blockers %}
+          <div class="mb-1"><strong>Blockers:</strong></div>
+          {% for b in s.blockers %}
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span>[{{ b.severity|upper }}] {{ b.description }}</span>
+            <span>
+              {% if not b.resolved %}
+              <form method="post" action="/blocker/{{ b.id }}/resolve" class="d-inline">
+                <button class="btn btn-sm btn-outline-success py-0">Resolve</button>
+              </form>
+              {% else %}
+              <span class="text-success">Resolved {{ b.date_resolved }}</span>
+              {% endif %}
+            </span>
+          </div>
+          {% endfor %}
+          {% endif %}
+          <div class="mt-1">
+            <button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="collapse" data-bs-target="#blockerForm{{ s.id }}">+ Blocker</button>
+            <button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="collapse" data-bs-target="#sentimentForm{{ s.id }}">+ Comment</button>
+          </div>
+          <div class="collapse mt-1" id="blockerForm{{ s.id }}">
+            <form method="post" action="/snapshot/{{ s.id }}/blocker" class="row g-1">
+              <div class="col-5"><input type="text" name="description" class="form-control form-control-sm" placeholder="Description" required></div>
+              <div class="col-3"><input type="date" name="date_raised" class="form-control form-control-sm" required></div>
+              <div class="col-2">
+                <select name="severity" class="form-select form-select-sm">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div class="col-2"><button class="btn btn-sm btn-primary w-100">Add</button></div>
+            </form>
+          </div>
+          <div class="collapse mt-1" id="sentimentForm{{ s.id }}">
+            <form method="post" action="/snapshot/{{ s.id }}/sentiment" class="row g-1">
+              <div class="col-4"><input type="text" name="source" class="form-control form-control-sm" placeholder="Stakeholder" required></div>
+              <div class="col-6"><input type="text" name="comment" class="form-control form-control-sm" placeholder="Comment" required></div>
+              <div class="col-2"><button class="btn btn-sm btn-primary w-100">Add</button></div>
+            </form>
+          </div>
+          {% if s.sentiment %}
+          <div class="mt-1 small"><strong>Sentiment:</strong></div>
+          {% for e in s.sentiment %}
+          <div class="small ms-2">{{ e.source }}: <em>{{ e.comment }}</em> <span class="text-muted">[{{ e.score }}]</span></div>
+          {% endfor %}
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="list-group-item text-muted">No snapshots. Add one to compute RAG.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

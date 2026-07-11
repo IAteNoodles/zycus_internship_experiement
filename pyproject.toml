@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude = ["output", "templates", "tests"]
+
+[project]
+name = "zycus"
+version = "0.1.0"
+description = "Project Health Reporting Agent"
+readme = "README.md"
+requires-python = ">=3.10.5"
+dependencies = [
+    "openai>=1.0",
+    "python-dotenv>=1.0",
+    "python-pptx>=1.0",
+    "pydantic>=2.0",
+    "fastapi>=0.139.0",
+    "uvicorn>=0.51.0",
+    "jinja2>=3.1.6",
+    "apscheduler>=3.11.3",
+    "aiosqlite>=0.22.1",
+    "python-multipart",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
